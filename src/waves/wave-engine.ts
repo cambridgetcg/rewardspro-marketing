@@ -75,7 +75,9 @@ export function evaluateWave(): WaveDecision {
   const state = readState();
   const cache = readCache();
 
-  const totalInstalls = cache.current?.totalInstalls ?? 0;
+  // Use activeInstalls (unique merchants minus uninstalls) not totalInstalls (raw event count)
+  // totalInstalls inflates due to reinstalls, test stores, and dev stores
+  const totalInstalls = cache.current?.activeInstalls ?? cache.current?.totalInstalls ?? 0;
   const velocity = rollingVelocity(cache, 7);
 
   let waveId = state.currentWave;
