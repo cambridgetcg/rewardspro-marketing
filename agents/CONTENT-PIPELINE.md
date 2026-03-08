@@ -1,0 +1,283 @@
+# CONTENT-PIPELINE.md — Promotional Content Generation Pipeline
+
+> This document instructs all Marketing Agents on how to use the AI content
+> generation pipeline to produce branded promotional images and videos for each
+> wave. Read this alongside MARKETING-AGENT.md.
+
+---
+
+## Pipeline Overview
+
+```
+Wave Engine decides: post is due
+        ↓
+Post template selected (text, hashtags, style hint)
+        ↓
+Media Generator invoked (src/media/generator.ts)
+        ↓
+    ┌───────────────────────────────────┐
+    │  Fal.ai API (image or video)      │
+    │  ├── Images: Flux Pro 1.1         │
+    │  │   ~$0.04/image, ~10s           │
+    │  └── Videos: Kling v1.6 Standard  │
+    │      ~$0.35/5s clip, ~60s         │
+    └───────────────────────────────────┘
+        ↓
+Brand composer (Sharp / FFmpeg)
+  - Resize to platform spec
+  - Add wordmark "Rewards Pro" (gold, bottom-left)
+  - Add gradient vignette for text readability
+  - Optional: stat overlay (install count, tagline)
+        ↓
+Ayrshare API — post with mediaUrls
+```
+
+---
+
+## Environment Variables Required
+
+```bash
+# Already in .env:
+AYRSHARE_API_KEY=***REMOVED-ROTATE-ME***
+FAL_API_KEY=***REMOVED-ROTATE-ME***
+
+# Still needed:
+SHOPIFY_PARTNER_TOKEN=<get from partners.shopify.com>
+```
+
+---
+
+## Models Available
+
+### Image Generation (via Fal.ai)
+
+| Model | Quality | Speed | Cost | Use When |
+|-------|---------|-------|------|----------|
+| `fal-ai/flux-pro/v1.1` | ★★★★★ | ~10s | $0.04 | Production posts |
+| `fal-ai/flux/schnell` | ★★★☆☆ | ~2s | $0.003 | Drafts, testing |
+| `fal-ai/stable-diffusion-v3-medium` | ★★★★☆ | ~8s | $0.035 | Alternative style |
+| `fal-ai/ideogram/v2` | ★★★★☆ | ~12s | $0.08 | Text-in-image needed |
+
+### Video Generation (via Fal.ai)
+
+| Model | Quality | Length | Cost | Use When |
+|-------|---------|--------|------|----------|
+| `fal-ai/kling-video/v1.6/standard` | ★★★★★ | 5-10s | $0.35-0.70 | Instagram Reels |
+| `fal-ai/minimax-video` | ★★★★☆ | 6s | $0.28 | Fallback |
+| `fal-ai/luma-dream-machine` | ★★★☆☆ | 5s | $0.20 | Fast motion shots |
+
+### Image Editing (local, no cost)
+
+- **Sharp** — resize, crop, composite overlays, vignette
+- **FFmpeg** — video text overlay, fade in/out, format conversion
+
+---
+
+## Content Types by Wave
+
+### Wave 0 — Bootstrap
+**Generate**: Feature cards (static images)
+```bash
+# Quick test: generate a feature card for Twitter
+npx tsx src/media/generator.ts --quick --style feature-card --platform twitter --draft
+```
+
+**Schedule**: 3 posts/week, text-only or with static image
+**Media**: optional but recommended — increases engagement 40-60%
+
+### Wave 1 — Growth  
+**Generate**: Social proof banners (install count overlay)
+```bash
+npx tsx src/run-wave.ts --dry-run
+# Then: npx tsx src/run-wave.ts
+```
+
+**All Twitter/LinkedIn posts**: include static image (Flux Schnell for speed)
+**Media**: 1 image per post per platform (different crops)
+
+### Wave 2 — Momentum
+**Generate**: Milestone graphics + testimonial cards + short videos
+- Twitter/LinkedIn: branded static images
+- Instagram: 6-8s video clips (Kling)
+- Threads: image carousels
+
+**Media**: generate images for all, videos for Instagram only
+
+### Wave 3 — Scale
+**Generate**: Full content packages — images + videos for all platforms
+- Twitter: 16:9 product shots
+- LinkedIn: 1.91:1 branded graphics
+- Instagram: 1:1 or 9:16 Reels (video)
+- TikTok: 9:16 vertical videos (Kling, 10s)
+
+---
+
+## Agent Execution Steps
+
+### Per posting cycle (when wave engine says "post due"):
+
+```typescript
+// In run-wave.ts (already integrated):
+const pkg = await generateContentPackage({
+  post,
+  variantIndex,
+  waveId: decision.waveId,
+  installCount: decision.metrics.totalInstalls,
+  targetPlatforms: wave.channels.primary as Platform[],
+  draft: false,           // true for Wave 0, false for Wave 1+
+  textOnly: false,        // set to true if FAL_API_KEY not set
+});
+
+// Post with media:
+await client.post({
+  text: pkg.postText,
+  platforms: channels,
+  hashtags: pkg.hashtags,
+  mediaUrls: pkg.media.map(m => m.url),
+});
+```
+
+### Standalone content generation (manual):
+
+```bash
+# Generate image for a specific style and platform
+npx tsx -e "
+import { quickImage } from './src/media/generator.js';
+const media = await quickImage('social-proof', 'twitter', 47, false);
+console.log('Generated:', media.url, 'Local:', media.localPath);
+"
+
+# Run full content package for Wave 1
+npx tsx -e "
+import { generateContentPackage } from './src/media/generator.js';
+import { CONTENT_LIBRARY } from './src/content/library.js';
+const post = CONTENT_LIBRARY.find(p => p.id === 'social-proof-count');
+const pkg = await generateContentPackage({
+  post, variantIndex: 0, waveId: 1, installCount: 9,
+  targetPlatforms: ['twitter', 'linkedin'], draft: true
+});
+console.log(JSON.stringify(pkg, null, 2));
+"
+```
+
+---
+
+## Brand Guidelines for Generation
+
+All generated content must follow:
+
+| Element | Specification |
+|---------|--------------|
+| Background | Deep navy `#1a1a2e` or dark gradient |
+| Accent | Gold `#FFD700` for wordmark and highlights |
+| Wordmark | "Rewards Pro" in Inter/Helvetica, 18px, gold, bottom-left |
+| Vignette | Navy-to-transparent gradient at bottom 40% for readability |
+| No text in AI images | Text is composited by Sharp — never ask AI to write text |
+| Platform sizing | Use `PLATFORM_SPECS` — never post wrong aspect ratio |
+
+---
+
+## Cost Budget
+
+**Per post cycle** (text + image for 2 platforms):
+- 2× Flux Pro images: ~$0.08
+- Monthly at Wave 1 cadence (4×/week): ~$1.40/month
+
+**Per post cycle with video** (Wave 2+, adds Instagram Reel):
+- 2× images + 1× Kling video: ~$0.43
+- Monthly at Wave 2 cadence (5×/week): ~$9.50/month
+
+**Stay under $20/month** on media generation until Wave 3.
+At Wave 3 (100+ installs, revenue flowing), budget increases.
+
+---
+
+## Error Handling
+
+If media generation fails:
+1. Log the error to `data/event-log.jsonl`
+2. **Continue posting text-only** — never skip a post cycle because of media failure
+3. On 3 consecutive media failures: disable media generation for 24h, alert Yu
+
+```typescript
+// Pattern:
+try {
+  pkg = await generateContentPackage(options);
+} catch (err) {
+  console.error('[media] Generation failed:', err.message);
+  pkg = await generateContentPackage({ ...options, textOnly: true });
+  logEvent('media-failure', { error: err.message });
+}
+```
+
+---
+
+## Uploading Local Branded Images to Ayrshare
+
+Ayrshare requires a public URL for media. Options:
+
+**Option A — Use Fal.ai CDN URLs directly** (simplest — fal URLs are public for 24h)
+```typescript
+mediaUrls: pkg.media.map(m => m.url)  // raw fal CDN URL, pre-branding
+```
+
+**Option B — Upload to Cloudflare Images** (branded version, permanent)
+```bash
+# Cloudflare Images API (Account ID: cf4198e651bf3009877d49f688c9d88e)
+curl -X POST "https://api.cloudflare.com/client/v4/accounts/cf4198e651bf3009877d49f688c9d88e/images/v1" \
+  -H "X-Auth-Email: contact@cambridgetcg.com" \
+  -H "X-Auth-Key: ***REMOVED-ROTATE-ME***" \
+  -F file=@data/temp/composed-twitter-123.jpg
+```
+
+**Recommended**: Option A for now. Migrate to Option B when branding is critical.
+
+---
+
+## Sub-Account (Promotional Profile) Strategy
+
+Ayrshare Business plan supports multiple profiles (sub-accounts).
+Each profile connects its own social handles.
+
+**Main profile** (connected to Yu's existing accounts):
+- Brand voice: founder, authentic, milestone posts
+- Waves 0-2: most posts go here
+
+**Promo sub-profile** (create via Ayrshare dashboard → User Profiles):
+- Handles specifically for offers, review asks, wave 3 CTAs
+- Higher post frequency without polluting main brand voice
+- Create at: app.ayrshare.com/mp-signup
+
+To use a specific profile in a post:
+```typescript
+await client.post({
+  text: "...",
+  platforms: ["twitter"],
+  profileKeys: [process.env.AYRSHARE_PROMO_PROFILE_KEY],
+});
+```
+
+---
+
+## VPS Agent Operation
+
+When running on the marketing VPS (89.167.95.165):
+
+1. **Check this file** for updates each heartbeat
+2. **Run the wave engine** every 2 hours: `npx tsx src/run-wave.ts`
+3. **Log output** to `data/cron.log`
+4. **Report** status to `memory/status.json` after each cycle:
+   ```json
+   {
+     "ts": "2026-03-08T04:00:00Z",
+     "role": "marketing",
+     "summary": "Wave 0 steady. Posted to Twitter + LinkedIn (with image). Next post: Thu 09:00 UTC.",
+     "alerts": [],
+     "quality": "good"
+   }
+   ```
+5. **Alert Yu** immediately if: wave changes, API errors persist, install milestone hit
+
+---
+
+*Pipeline designed 2026-03-08. Update when new models or tools become available.*
