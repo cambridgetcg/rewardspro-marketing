@@ -74,10 +74,16 @@ export async function fetchInstallMetrics(): Promise<InstallMetrics | null> {
     const totalInstalls = installEdges.length;
     const totalUninstalls = uninstallEdges.length;
 
-    // Active = installed shops minus those that later uninstalled
-    const installedShops = new Set(installEdges.map((e: any) => e.node.shop.myshopifyDomain));
-    const uninstalledShops = new Set(uninstallEdges.map((e: any) => e.node.shop.myshopifyDomain));
-    const activeInstalls = [...installedShops].filter(s => !uninstalledShops.has(s)).length;
+    // Active = shops whose most recent event is an install (handles reinstalls correctly)
+    // Merge all events, sort by time, take last event per shop
+    const allEvents = [
+      ...installEdges.map((e: any) => ({ shop: e.node.shop.myshopifyDomain, type: "install", at: e.node.occurredAt })),
+      ...uninstallEdges.map((e: any) => ({ shop: e.node.shop.myshopifyDomain, type: "uninstall", at: e.node.occurredAt })),
+    ].sort((a, b) => a.at.localeCompare(b.at));
+
+    const latestByShop = new Map<string, string>();
+    for (const ev of allEvents) latestByShop.set(ev.shop, ev.type);
+    const activeInstalls = [...latestByShop.values()].filter(t => t === "install").length;
 
     // Velocity: installs in last 7 days
     const weekAgo = new Date();
