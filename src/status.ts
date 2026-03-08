@@ -13,10 +13,12 @@ const state = readState();
 const wave = getWave(state.currentWave);
 const velocity = rollingVelocity(cache, 7);
 const totalInstalls = cache.current?.totalInstalls ?? 0;
+// Use activeInstalls for threshold progress (excludes churned/test stores)
+const activeInstalls = cache.current?.activeInstalls ?? totalInstalls;
 
 const nextWave = WAVES.find(w => w.id === state.currentWave + 1);
 const progressToNext = nextWave
-  ? Math.min(100, Math.round((totalInstalls / nextWave.installThreshold) * 100))
+  ? Math.min(100, Math.round((activeInstalls / nextWave.installThreshold) * 100))
   : 100;
 
 console.log(`\n╔══════════════════════════════════════════════╗`);
