@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+data/metrics-cache.json
+data/wave-state.json
+data/used-post-ids.json
+data/event-log.jsonl
+data/cron.log
