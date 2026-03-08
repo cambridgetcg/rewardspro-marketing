@@ -9,7 +9,10 @@
 
 import axios from "axios";
 
-const PARTNER_API_URL = `https://partners.shopify.com/${process.env.SHOPIFY_PARTNER_ORG_ID}/api/2024-04/graphql.json`;
+// Partner API endpoint: https://partners.shopify.com/{org-id}/api/{version}/graphql.json
+// Available fields on App: apiKey, events, id, name
+// Install events are type RELATIONSHIP_INSTALLED; uninstalls are RELATIONSHIP_UNINSTALLED
+const PARTNER_API_URL = `https://partners.shopify.com/${process.env.SHOPIFY_PARTNER_ORG_ID}/api/2026-01/graphql.json`;
 const APP_GID = `gid://partners/App/${process.env.SHOPIFY_APP_ID}`;
 
 export interface InstallMetrics {
@@ -20,16 +23,16 @@ export interface InstallMetrics {
   fetchedAt: string;
 }
 
-const APP_STATS_QUERY = `
-  query AppStats($appId: ID!, $since: DateTime!) {
+// Fetch all install + uninstall events; derive counts from event history
+const APP_EVENTS_QUERY = `
+  query AppEvents($appId: ID!) {
     app(id: $appId) {
       name
-      installations: installs(from: $since) {
-        edges {
-          node {
-            createdAt
-          }
-        }
+      installs: events(types: [RELATIONSHIP_INSTALLED]) {
+        edges { node { type occurredAt shop { myshopifyDomain } } }
+      }
+      uninstalls: events(types: [RELATIONSHIP_UNINSTALLED]) {
+        edges { node { type occurredAt shop { myshopifyDomain } } }
       }
     }
   }
@@ -46,16 +49,10 @@ export async function fetchInstallMetrics(): Promise<InstallMetrics | null> {
     return null;
   }
 
-  const since = new Date();
-  since.setDate(since.getDate() - 7);
-
   try {
     const response = await axios.post(
       PARTNER_API_URL,
-      {
-        query: APP_STATS_QUERY,
-        variables: { appId: APP_GID, since: since.toISOString() },
-      },
+      { query: APP_EVENTS_QUERY, variables: { appId: APP_GID } },
       {
         headers: {
           "X-Shopify-Access-Token": token,
@@ -65,19 +62,35 @@ export async function fetchInstallMetrics(): Promise<InstallMetrics | null> {
       }
     );
 
-    const data = response.data?.data;
-    if (!data?.app) {
+    const app = response.data?.data?.app;
+    if (!app) {
       console.error("[Metrics] Unexpected response:", JSON.stringify(response.data));
       return null;
     }
 
-    const recentInstalls = data.app.installations?.edges?.length ?? 0;
+    const installEdges: any[] = app.installs?.edges ?? [];
+    const uninstallEdges: any[] = app.uninstalls?.edges ?? [];
+
+    const totalInstalls = installEdges.length;
+    const totalUninstalls = uninstallEdges.length;
+
+    // Active = installed shops minus those that later uninstalled
+    const installedShops = new Set(installEdges.map((e: any) => e.node.shop.myshopifyDomain));
+    const uninstalledShops = new Set(uninstallEdges.map((e: any) => e.node.shop.myshopifyDomain));
+    const activeInstalls = [...installedShops].filter(s => !uninstalledShops.has(s)).length;
+
+    // Velocity: installs in last 7 days
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    const installVelocity = installEdges.filter(
+      (e: any) => new Date(e.node.occurredAt) > weekAgo
+    ).length;
 
     return {
-      totalInstalls: 0,        // Partner API only gives windowed data — augment from cache
-      activeInstalls: 0,
-      installVelocity: recentInstalls,
-      uninstalls: 0,
+      totalInstalls,
+      activeInstalls,
+      installVelocity,
+      uninstalls: totalUninstalls,
       fetchedAt: new Date().toISOString(),
     };
   } catch (err: any) {
