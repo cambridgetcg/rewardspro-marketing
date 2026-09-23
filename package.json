@@ -1,13 +1,14 @@
 {
   "name": "rewardspro-marketing",
   "version": "1.0.0",
-  "description": "Rewards Pro marketing wave engine — metrics-driven social outreach",
+  "description": "Retired RewardsPro outreach, with preserved campaign history",
   "type": "module",
   "scripts": {
     "run-wave": "npx tsx src/run-wave.ts",
     "metrics": "npx tsx src/metrics/fetch.ts",
     "status": "npx tsx src/status.ts",
-    "schedule": "npx tsx src/waves/schedule.ts"
+    "schedule": "npx tsx src/run-wave.ts",
+    "test": "node --import tsx --test tests/*.test.mjs"
   },
   "dependencies": {
     "@fal-ai/client": "^1.9.4",
